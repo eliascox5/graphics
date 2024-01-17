@@ -6,3 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+shaderc = "0.8"
+vulkano = "0.34.0"
+
+[profile.dev]
+opt-level = 1 
