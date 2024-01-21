@@ -23,6 +23,7 @@ fn main() {
         println!("Found a queue family with {:?} queue(s)", family.queue_count);
     }
 
+
     let queue_family_index = physical_device
     .queue_family_properties()
     .iter()
@@ -45,25 +46,88 @@ fn main() {
     )
     .expect("failed to create device");
 
+    //Queues are... essentially threads on the  GPU for compute tasks. 
     let queue = queues.next().unwrap();
+
+    //Memory Buffers are used to hold information about to be transported to the GPU
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
     let data: i32 = 12;
-    let buffer = Buffer::from_data(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::UNIFORM_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        data,
-    )
-    .expect("failed to create buffer");
+
+    let source_content: Vec<i32> = (0..64).collect();
+let source = Buffer::from_iter(
+    memory_allocator.clone(),
+    BufferCreateInfo {
+        usage: BufferUsage::TRANSFER_SRC,
+        ..Default::default()
+    },
+    AllocationCreateInfo {
+        memory_type_filter: MemoryTypeFilter::PREFER_HOST
+            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+        ..Default::default()
+    },
+    source_content,
+)
+.expect("failed to create source buffer");
+
+let destination_content: Vec<i32> = (0..64).map(|_| 0).collect();
+let destination = Buffer::from_iter(
+    memory_allocator.clone(),
+    BufferCreateInfo {
+        usage: BufferUsage::TRANSFER_DST,
+        ..Default::default()
+    },
+    AllocationCreateInfo {
+        memory_type_filter: MemoryTypeFilter::PREFER_HOST
+            | MemoryTypeFilter::HOST_RANDOM_ACCESS,
+        ..Default::default()
+    },
+    destination_content,
+)
+.expect("failed to create destination buffer");
+
+
+//Command Buffers are used to hold commands for the GPU on how to compute a workload 
+use vulkano::command_buffer::allocator::{
+    StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo,
+};
+
+let command_buffer_allocator = StandardCommandBufferAllocator::new(
+    device.clone(),
+    StandardCommandBufferAllocatorCreateInfo::default(),
+);
+
+use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo};
+
+//Builder pattern. 
+let mut builder = AutoCommandBufferBuilder::primary(
+    &command_buffer_allocator,
+    queue_family_index,
+    CommandBufferUsage::OneTimeSubmit,
+)
+.unwrap();
+
+builder
+    .copy_buffer(CopyBufferInfo::buffers(source.clone(), destination.clone()))
+    .unwrap();
+let command_buffer = builder.build().unwrap();
+
+use vulkano::sync::{self, GpuFuture};
+
+let future = sync::now(device.clone())
+    .then_execute(queue.clone(), command_buffer)
+    .unwrap()
+    .then_signal_fence_and_flush() // same as signal fence, and then flush
+    .unwrap();
+
+future.wait(None).unwrap();
+
+let src_content = source.read().unwrap();
+let destination_content = destination.read().unwrap();
+assert_eq!(&*src_content, &*destination_content);
+
+println!("Everything succeeded!");
 
 }
 
