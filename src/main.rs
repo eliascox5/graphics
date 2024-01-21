@@ -129,6 +129,67 @@ assert_eq!(&*src_content, &*destination_content);
 
 println!("Everything succeeded!");
 
+
+// Compute Shader Pipeline
+let shader = cs::load(device.clone()).expect("failed to create shader module");
+
+let data_iter = 0..65536u32;
+let data_buffer = Buffer::from_iter(
+    memory_allocator.clone(),
+    BufferCreateInfo {
+        usage: BufferUsage::STORAGE_BUFFER,
+        ..Default::default()
+    },
+    AllocationCreateInfo {
+        memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+        ..Default::default()
+    },
+    data_iter,
+)
+.expect("failed to create buffer");
+
+use vulkano::pipeline::compute::ComputePipelineCreateInfo;
+use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
+use vulkano::pipeline::{ComputePipeline, PipelineLayout, PipelineShaderStageCreateInfo};
+
+let cs = shader.entry_point("main").unwrap();
+let stage = PipelineShaderStageCreateInfo::new(cs);
+let layout = PipelineLayout::new(
+    device.clone(),
+    PipelineDescriptorSetLayoutCreateInfo::from_stages([&stage])
+        .into_pipeline_layout_create_info(device.clone())
+        .unwrap(),
+)
+.unwrap();
+
+let compute_pipeline = ComputePipeline::new(
+    device.clone(),
+    None,
+    ComputePipelineCreateInfo::stage_layout(stage, layout),
+)
+.expect("failed to create compute pipeline");
+
 }
 
+use vulkano_shaders;
 
+mod cs {
+    vulkano_shaders::shader!{
+        ty: "compute",
+        src: r"
+            #version 460
+
+            layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+            layout(set = 0, binding = 0) buffer Data {
+                uint data[];
+            } buf;
+
+            void main() {
+                uint idx = gl_GlobalInvocationID.x;
+                buf.data[idx] *= 12;
+            }
+        ",
+    }
+}

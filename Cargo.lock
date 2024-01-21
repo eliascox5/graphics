@@ -160,6 +160,7 @@ version = "0.1.0"
 dependencies = [
  "shaderc",
  "vulkano",
+ "vulkano-shaders",
 ]
 
 [[package]]
@@ -551,6 +552,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "vulkano-shaders"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1f63401297565d74afb96e9add12587d8e46235140cee325a8eb6ba4602f4ee"
+dependencies = [
+ "ahash",
+ "heck",
+ "proc-macro2",
+ "quote",
+ "shaderc",
+ "syn 2.0.48",
+ "vulkano",
 ]
 
 [[package]]
