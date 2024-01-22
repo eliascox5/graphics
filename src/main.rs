@@ -1,5 +1,5 @@
 use std::sync::Arc;
-
+mod vulkan_engine;
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
@@ -235,7 +235,7 @@ fn main() {
     let library = vulkano::VulkanLibrary::new().expect("no local Vulkan library/DLL");
     let event_loop = EventLoop::new();
 
-    let required_extensions = Surface::required_extensions(&event_loop);
+    let required_extensions: vulkano::instance::InstanceExtensions = Surface::required_extensions(&event_loop);
     let instance = Instance::new(
         library,
         InstanceCreateInfo {

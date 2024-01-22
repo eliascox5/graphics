@@ -1,5 +1,4 @@
 use std::sync::Arc;
-
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
@@ -32,16 +31,18 @@ use vulkano::{Validated, VulkanError};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
+use winit_glium::window::Window;
 
 struct vulkan_instance{
     swapchain: Arc<Swapchain>,
     command_buffers: Vec<Arc<PrimaryAutoCommandBuffer>>,
 } 
+
 impl vulkan_instance{
-    fn new(window: Arc<Window>) -> self{  
+    fn new(window: &Arc<Window>, required_extensions: vulkano::instance::InstanceExtensions) -> Self{  
         let library = vulkano::VulkanLibrary::new().expect("no local Vulkan library/DLL");
 
-        let required_extensions = Surface::required_extensions(&event_loop);
+        
         let instance = Instance::new(
             library,
             InstanceCreateInfo {
@@ -166,6 +167,7 @@ impl vulkan_instance{
         &framebuffers,
         &vertex_buffer,
     );
+    Self {swapchain, command_buffers}
     }
     
 }
@@ -199,8 +201,7 @@ pub fn select_physical_device(
             PhysicalDeviceType::Cpu => 3,
             _ => 4,
         })
-        .expect("no device available");
-        self{swapchain, command_buffers}
+        .expect("no device available")
 }
 
 fn get_render_pass(device: Arc<Device>, swapchain: Arc<Swapchain>) -> Arc<RenderPass> {
@@ -290,6 +291,13 @@ fn get_pipeline(
         },
     )
     .unwrap()
+}
+
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+struct MyVertex {
+    #[format(R32G32_SFLOAT)]
+    position: [f32; 2],
 }
 
 fn get_command_buffers(
