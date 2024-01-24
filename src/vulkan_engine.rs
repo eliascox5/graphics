@@ -25,6 +25,7 @@ use vulkano::pipeline::{GraphicsPipeline, PipelineLayout, PipelineShaderStageCre
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{self, Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo};
+use vulkano::sync::fence::Fence;
 use vulkano::sync::future::FenceSignalFuture;
 use vulkano::sync::{self, GpuFuture};
 use vulkano::{Validated, VulkanError};
@@ -44,7 +45,7 @@ struct MyVertex {
 pub struct VulkanInstance{
     swapchain: Arc<Swapchain>,
     command_buffers: Vec<Arc<PrimaryAutoCommandBuffer>>,
-    images: Vec<Arc<Image>>,
+    pub images: Vec<Arc<Image>>,
     render_pass: Arc<RenderPass>,
     device: Arc<Device>,
     viewport: Viewport,
@@ -55,6 +56,8 @@ pub struct VulkanInstance{
     vertex_buffer: Subbuffer<[MyVertex]>,
     framebuffers: Vec<Arc<Framebuffer>>,
     command_buffer_allocator: StandardCommandBufferAllocator,
+    previous_frame_end: Option<Box<dyn GpuFuture>>
+
 }
     
 
@@ -187,7 +190,8 @@ impl VulkanInstance{
         &framebuffers,
         &vertex_buffer,
     );
-    Self {swapchain, command_buffers, images, render_pass, device, viewport, vs, fs, pipeline, queue, vertex_buffer, framebuffers, command_buffer_allocator}
+    let mut previous_frame_end: Option<Box<dyn GpuFuture>> = Some(sync::now(device.clone()).boxed());
+    Self {swapchain, command_buffers, images, render_pass, device, viewport, vs, fs, pipeline, queue, vertex_buffer, framebuffers, command_buffer_allocator, previous_frame_end}
     }
     
    pub  fn reload_objects_dependent_on_window_size(mut self, new_dimensions: winit::dpi::PhysicalSize<u32>){
@@ -216,7 +220,7 @@ impl VulkanInstance{
         );
     }
 
-   pub fn aquire_and_present_image(&self)      {
+   pub fn aquire_and_present_image(&mut self)      {
         let (image_i, suboptimal, acquire_future) =
     match swapchain::acquire_next_image(self.swapchain.clone(), None)
         .map_err(Validated::unwrap)
@@ -228,15 +232,17 @@ impl VulkanInstance{
         }
         Err(e) => panic!("failed to acquire next image: {e}"),
     };
-    let execution = sync::now(self.device.clone())
-    .join(acquire_future)
-    .then_execute(self.queue.clone(), self.command_buffers[image_i as usize].clone())
-    .unwrap()
-    .then_swapchain_present(
-        self.queue.clone(),
-        SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_i),
-    )
-    .then_signal_fence_and_flush();
+    let future = self.previous_frame_end
+                    .take()
+                    .unwrap()
+                    .join(acquire_future)
+                    .then_execute(self.queue.clone(), self.command_buffers[0].clone())
+                    .unwrap()
+                    .then_swapchain_present(
+                        self.queue.clone(),
+                        SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_i),
+                    )
+                    .then_signal_fence_and_flush();
     }
 }
 
@@ -360,7 +366,6 @@ fn get_pipeline(
     )
     .unwrap()
 }
-
 
 
 fn get_command_buffers(
