@@ -10,7 +10,7 @@ use vulkano::device::{
     Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags,
 };
 use vulkano::image::view::ImageView;
-use vulkano::image::{Image, ImageUsage};
+use vulkano::image::{Image, ImageUsage, self};
 use vulkano::instance::{Instance, InstanceCreateInfo};
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::color_blend::{ColorBlendAttachmentState, ColorBlendState};
@@ -31,15 +31,35 @@ use vulkano::{Validated, VulkanError};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
-use winit_glium::window::Window;
+use winit::window::Window;
+use winit::dpi::PhysicalSize;
 
-struct vulkan_instance{
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+struct MyVertex {
+    #[format(R32G32_SFLOAT)]
+    position: [f32; 2],
+}
+
+pub struct VulkanInstance{
     swapchain: Arc<Swapchain>,
     command_buffers: Vec<Arc<PrimaryAutoCommandBuffer>>,
-} 
+    images: Vec<Arc<Image>>,
+    render_pass: Arc<RenderPass>,
+    device: Arc<Device>,
+    viewport: Viewport,
+    vs: Arc<ShaderModule>,
+    fs: Arc<ShaderModule>,
+    pipeline: Arc<GraphicsPipeline>,
+    queue: Arc<Queue>,
+    vertex_buffer: Subbuffer<[MyVertex]>,
+    framebuffers: Vec<Arc<Framebuffer>>,
+    command_buffer_allocator: StandardCommandBufferAllocator,
+}
+    
 
-impl vulkan_instance{
-    fn new(window: &Arc<Window>, required_extensions: vulkano::instance::InstanceExtensions) -> Self{  
+impl VulkanInstance{
+    pub fn new(window: &Arc<Window>, required_extensions: vulkano::instance::InstanceExtensions) -> Self{  
         let library = vulkano::VulkanLibrary::new().expect("no local Vulkan library/DLL");
 
         
@@ -109,11 +129,11 @@ impl vulkan_instance{
     };
 
     //A render pass represents what the renderer does for every image it renders.
-    let render_pass = get_render_pass(device.clone(), swapchain.clone());
+    let render_pass: Arc<RenderPass> = get_render_pass(device.clone(), swapchain.clone());
     //The Frame buffers hold each image before they are sent to the screen
-    let framebuffers = get_framebuffers(&images, render_pass.clone());
+    let framebuffers: Vec<Arc<Framebuffer>> =get_framebuffers(&images, &render_pass.clone());
 
-    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+    let memory_allocator: Arc<vulkano::memory::allocator::GenericMemoryAllocator<vulkano::memory::allocator::FreeListAllocator>> = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
     //Some Sample data to make a lil triangle
     let vertex1 = MyVertex {
@@ -125,7 +145,7 @@ impl vulkan_instance{
     let vertex3 = MyVertex {
         position: [0.5, -0.25],
     };
-    let vertex_buffer = Buffer::from_iter(
+    let vertex_buffer: Subbuffer<[MyVertex]> = Buffer::from_iter(
         memory_allocator,
         BufferCreateInfo {
             usage: BufferUsage::VERTEX_BUFFER,
@@ -157,7 +177,7 @@ impl vulkan_instance{
         viewport.clone(),
     );
 
-    let command_buffer_allocator =
+    let command_buffer_allocator: StandardCommandBufferAllocator =
         StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
     let mut command_buffers = get_command_buffers(
@@ -167,9 +187,57 @@ impl vulkan_instance{
         &framebuffers,
         &vertex_buffer,
     );
-    Self {swapchain, command_buffers}
+    Self {swapchain, command_buffers, images, render_pass, device, viewport, vs, fs, pipeline, queue, vertex_buffer, framebuffers, command_buffer_allocator}
     }
     
+   pub  fn reload_objects_dependent_on_window_size(mut self, new_dimensions: winit::dpi::PhysicalSize<u32>){
+        let (new_swapchain, new_images) = self.swapchain
+        .recreate(SwapchainCreateInfo {
+            image_extent: new_dimensions.into(),
+            ..self.swapchain.create_info()
+        })
+        .expect("failed to recreate swapchain: {e}");
+    self.swapchain = new_swapchain;
+    let new_framebuffers = get_framebuffers(&new_images, &self.render_pass);
+
+        let new_pipeline = get_pipeline(
+            self.device.clone(),
+            self.vs.clone(),
+           self. fs.clone(),
+            self.render_pass.clone(),
+            self.viewport.clone(),
+        );
+        self.command_buffers = get_command_buffers(
+            &self.command_buffer_allocator,
+            &self.queue,
+            &new_pipeline,
+            &new_framebuffers,
+            &self.vertex_buffer,
+        );
+    }
+
+   pub fn aquire_and_present_image(&self)      {
+        let (image_i, suboptimal, acquire_future) =
+    match swapchain::acquire_next_image(self.swapchain.clone(), None)
+        .map_err(Validated::unwrap)
+    {
+        Ok(r) => r,
+        Err(VulkanError::OutOfDate) => {
+            print!("Swapchai out of date oh no");
+            return;
+        }
+        Err(e) => panic!("failed to acquire next image: {e}"),
+    };
+    let execution = sync::now(self.device.clone())
+    .join(acquire_future)
+    .then_execute(self.queue.clone(), self.command_buffers[image_i as usize].clone())
+    .unwrap()
+    .then_swapchain_present(
+        self.queue.clone(),
+        SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_i),
+    )
+    .then_signal_fence_and_flush();
+    }
 }
 
 
@@ -223,7 +291,7 @@ fn get_render_pass(device: Arc<Device>, swapchain: Arc<Swapchain>) -> Arc<Render
     .unwrap()
 }
 
-fn get_framebuffers(images: &[Arc<Image>], render_pass: Arc<RenderPass>) -> Vec<Arc<Framebuffer>> {
+pub fn get_framebuffers(images: &[Arc<Image>], render_pass: &Arc<RenderPass>) -> Vec<Arc<Framebuffer>> {
     images
         .iter()
         .map(|image| {
@@ -293,12 +361,7 @@ fn get_pipeline(
     .unwrap()
 }
 
-#[derive(BufferContents, Vertex)]
-#[repr(C)]
-struct MyVertex {
-    #[format(R32G32_SFLOAT)]
-    position: [f32; 2],
-}
+
 
 fn get_command_buffers(
     command_buffer_allocator: &StandardCommandBufferAllocator,
@@ -341,7 +404,8 @@ fn get_command_buffers(
             builder.build().unwrap()
         })
         .collect()
-}
+    }
+
 
 mod vs {
     vulkano_shaders::shader! {
