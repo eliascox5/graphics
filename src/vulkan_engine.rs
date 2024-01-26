@@ -58,9 +58,6 @@ pub struct VulkanInstance{
     vertex_buffer: Subbuffer<[MyVertex]>,
     framebuffers: Vec<Arc<Framebuffer>>,
     command_buffer_allocator: StandardCommandBufferAllocator,
-    max_frames_in_flight: i32,
-    current_frame: i32,
-    previous_frame_finished_future: Option<Box<dyn GpuFuture>>
 }
     
 
@@ -187,15 +184,9 @@ impl VulkanInstance{
 
     let mut command_buffers = get_command_buffers(
         &command_buffer_allocator, &queue, &pipeline, &framebuffers, &vertex_buffer );
-
-    let max_frames_in_flight = images.len() as i32;
-    let current_frame = 0;
-
-    let frames_in_flight = images.len();
-    let mut previous_frame_finished_future: Option<Box<dyn GpuFuture>> = Some(sync::now(device.clone()).boxed());
         
 
-    Self {swapchain, command_buffers, images, render_pass, device, viewport, vs, fs, pipeline, queue, vertex_buffer, framebuffers, command_buffer_allocator, max_frames_in_flight, current_frame, previous_frame_finished_future}
+    Self {swapchain, command_buffers, images, render_pass, device, viewport, vs, fs, pipeline, queue, vertex_buffer, framebuffers, command_buffer_allocator}
     }
     
    pub  fn reload_objects_dependent_on_window_size(&mut self, new_dimensions: winit::dpi::PhysicalSize<u32>){
@@ -231,9 +222,7 @@ impl VulkanInstance{
         Err(e) => panic!("failed to acquire next image: {e}"),
     };
 
-    let future = self.previous_frame_finished_future
-                    .take()
-                    .unwrap()
+    let future = sync::now(self.device.clone())
                     .join(acquire_future)
                     .then_execute(self.queue.clone(), self.command_buffers[image_i as usize].clone())
                     .unwrap()
@@ -243,19 +232,6 @@ impl VulkanInstance{
                 )
                 .then_signal_fence_and_flush();
 
-                match future.map_err(Validated::unwrap) {
-                    Ok(future) => {
-                        self.previous_frame_finished_future = Some(future.boxed());
-                    }
-                    Err(VulkanError::OutOfDate) => {
-                        //recreate_swapchain = true;
-                        self.previous_frame_finished_future = Some(sync::now(self.device.clone()).boxed());
-                    }
-                    Err(e) => {
-                        panic!("failed to flush future: {e}");
-                        // previous_frame_end = Some(sync::now(device.clone()).boxed());
-                  }
-    }
 }
 }
 
