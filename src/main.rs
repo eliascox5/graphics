@@ -46,9 +46,9 @@ fn main() {
             
         }
         Event::MainEventsCleared => {
-            if window_resized{
-                vk_instance.reload_objects_dependent_on_window_size(new_dimensions);
-            }
+            //if window_resized{
+                //vk_instance.reload_objects_dependent_on_window_size(new_dimensions);
+            //}
 
             vk_instance.draw();
         }

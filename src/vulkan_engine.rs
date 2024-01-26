@@ -242,7 +242,21 @@ impl VulkanInstance{
                     SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_i),
                 )
                 .then_signal_fence_and_flush();
+
+                match future.map_err(Validated::unwrap) {
+                    Ok(future) => {
+                        self.previous_frame_finished_future = Some(future.boxed());
+                    }
+                    Err(VulkanError::OutOfDate) => {
+                        //recreate_swapchain = true;
+                        self.previous_frame_finished_future = Some(sync::now(self.device.clone()).boxed());
+                    }
+                    Err(e) => {
+                        panic!("failed to flush future: {e}");
+                        // previous_frame_end = Some(sync::now(device.clone()).boxed());
+                  }
     }
+}
 }
 
 
