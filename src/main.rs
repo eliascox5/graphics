@@ -7,6 +7,7 @@ use vulkano::swapchain::Surface;
 
 
 
+
 fn main() {
     let event_loop = EventLoop::new();
     let frames_in_flight = 4;
@@ -26,10 +27,6 @@ fn main() {
     use vulkano::sync::future::FenceSignalFuture;
     use vulkano::sync;
     
-
-
-    
-
     //The Event looooop -----------------------------------------------------------------------------------
 
     let new_dimensions: winit::dpi::PhysicalSize<u32> = window.inner_size();
@@ -49,7 +46,11 @@ fn main() {
             
         }
         Event::MainEventsCleared => {
-            vk_instance.aquire_and_present_image();
+            if window_resized{
+                vk_instance.reload_objects_dependent_on_window_size(new_dimensions);
+            }
+
+            vk_instance.draw();
         }
         _ => (),
     });

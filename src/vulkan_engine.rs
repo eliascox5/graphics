@@ -1,3 +1,4 @@
+use std::future;
 use std::sync::Arc;
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
@@ -33,6 +34,8 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit::window::Window;
 use winit::dpi::PhysicalSize;
+use crate::vulkan_engine::future::Future;
+use vulkano::sync::fence::Fence;
 
 #[derive(BufferContents, Vertex)]
 #[repr(C)]
@@ -55,6 +58,9 @@ pub struct VulkanInstance{
     vertex_buffer: Subbuffer<[MyVertex]>,
     framebuffers: Vec<Arc<Framebuffer>>,
     command_buffer_allocator: StandardCommandBufferAllocator,
+    max_frames_in_flight: i32,
+    current_frame: i32,
+    previous_frame_finished_future: Option<Box<dyn GpuFuture>>
 }
     
 
@@ -62,7 +68,6 @@ impl VulkanInstance{
     pub fn new(window: &Arc<Window>, required_extensions: vulkano::instance::InstanceExtensions) -> Self{  
         let library = vulkano::VulkanLibrary::new().expect("no local Vulkan library/DLL");
 
-        
         let instance = Instance::new(
             library,
             InstanceCreateInfo {
@@ -181,16 +186,19 @@ impl VulkanInstance{
         StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
     let mut command_buffers = get_command_buffers(
-        &command_buffer_allocator,
-        &queue,
-        &pipeline,
-        &framebuffers,
-        &vertex_buffer,
-    );
-    Self {swapchain, command_buffers, images, render_pass, device, viewport, vs, fs, pipeline, queue, vertex_buffer, framebuffers, command_buffer_allocator}
+        &command_buffer_allocator, &queue, &pipeline, &framebuffers, &vertex_buffer );
+
+    let max_frames_in_flight = images.len() as i32;
+    let current_frame = 0;
+
+    let frames_in_flight = images.len();
+    let mut previous_frame_finished_future: Option<Box<dyn GpuFuture>> = Some(sync::now(device.clone()).boxed());
+        
+
+    Self {swapchain, command_buffers, images, render_pass, device, viewport, vs, fs, pipeline, queue, vertex_buffer, framebuffers, command_buffer_allocator, max_frames_in_flight, current_frame, previous_frame_finished_future}
     }
     
-   pub  fn reload_objects_dependent_on_window_size(mut self, new_dimensions: winit::dpi::PhysicalSize<u32>){
+   pub  fn reload_objects_dependent_on_window_size(&mut self, new_dimensions: winit::dpi::PhysicalSize<u32>){
         let (new_swapchain, new_images) = self.swapchain
         .recreate(SwapchainCreateInfo {
             image_extent: new_dimensions.into(),
@@ -207,36 +215,33 @@ impl VulkanInstance{
             self.render_pass.clone(),
             self.viewport.clone(),
         );
-        self.command_buffers = get_command_buffers(
-            &self.command_buffer_allocator,
-            &self.queue,
-            &new_pipeline,
-            &new_framebuffers,
-            &self.vertex_buffer,
-        );
+        self.command_buffers = get_command_buffers(&self.command_buffer_allocator, &self.queue, &self.pipeline, &self.framebuffers, &self.vertex_buffer);
     }
 
-   pub fn aquire_and_present_image(&self)      {
-        let (image_i, suboptimal, acquire_future) =
+   pub fn draw(&mut self)      {
+    let (image_i, suboptimal, acquire_future) =
     match swapchain::acquire_next_image(self.swapchain.clone(), None)
         .map_err(Validated::unwrap)
     {
         Ok(r) => r,
         Err(VulkanError::OutOfDate) => {
-            print!("Swapchai out of date oh no");
+            print!("Swapchain out of date oh no");
             return;
         }
         Err(e) => panic!("failed to acquire next image: {e}"),
     };
-    let execution = sync::now(self.device.clone())
-    .join(acquire_future)
-    .then_execute(self.queue.clone(), self.command_buffers[image_i as usize].clone())
-    .unwrap()
-    .then_swapchain_present(
-        self.queue.clone(),
-        SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_i),
-    )
-    .then_signal_fence_and_flush();
+
+    let future = self.previous_frame_finished_future
+                    .take()
+                    .unwrap()
+                    .join(acquire_future)
+                    .then_execute(self.queue.clone(), self.command_buffers[image_i as usize].clone())
+                    .unwrap()
+                    .then_swapchain_present(
+                    self.queue.clone(),
+                    SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_i),
+                )
+                .then_signal_fence_and_flush();
     }
 }
 
@@ -360,8 +365,6 @@ fn get_pipeline(
     )
     .unwrap()
 }
-
-
 
 fn get_command_buffers(
     command_buffer_allocator: &StandardCommandBufferAllocator,
