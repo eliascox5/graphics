@@ -56,6 +56,7 @@ pub struct VulkanInstance{
     pipeline: Arc<GraphicsPipeline>,
     queue: Arc<Queue>,
     vertex_buffer: Subbuffer<[MyVertex]>,
+    index_buffer: Subbuffer<[u32]>,
     framebuffers: Vec<Arc<Framebuffer>>,
     command_buffer_allocator: StandardCommandBufferAllocator,
 }
@@ -142,13 +143,16 @@ impl VulkanInstance{
         position: [-0.5, -0.5],
     };
     let vertex2 = MyVertex {
-        position: [0.0, 0.5],
+        position: [0.5, -0.5],
     };
     let vertex3 = MyVertex {
-        position: [0.5, -0.25],
+        position: [0.5, 0.5],
+    };
+    let vertex4 = MyVertex{
+        position: [-0.5, 0.5],
     };
     let vertex_buffer: Subbuffer<[MyVertex]> = Buffer::from_iter(
-        memory_allocator,
+        memory_allocator.clone(),
         BufferCreateInfo {
             usage: BufferUsage::VERTEX_BUFFER,
             ..Default::default()
@@ -158,12 +162,26 @@ impl VulkanInstance{
                 | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
             ..Default::default()
         },
-        vec![vertex1, vertex2, vertex3],
+        vec![vertex1, vertex2, vertex3, vertex4],
     )
     .unwrap();
 
+    let index_buffer: Subbuffer<[u32]> = Buffer::from_iter(memory_allocator.clone(), 
+    BufferCreateInfo{
+        usage: BufferUsage::INDEX_BUFFER,
+        ..Default::default()
+    },
+    AllocationCreateInfo {
+        memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+        ..Default::default()
+    },
+    vec![0 as u32, 1 as u32, 2 as u32, 2 as u32, 3 as u32, 0 as u32],
+).unwrap();
+
     let vs = vs::load(device.clone()).expect("failed to create shader module");
     let fs = fs::load(device.clone()).expect("failed to create shader module");
+
 //A viewport describes the reigon of the screen you're rendering too. 
     let mut viewport = Viewport {
         offset: [0.0, 0.0],
@@ -183,10 +201,9 @@ impl VulkanInstance{
         StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
     let mut command_buffers = get_command_buffers(
-        &command_buffer_allocator, &queue, &pipeline, &framebuffers, &vertex_buffer );
-        
+        &command_buffer_allocator, &queue, &pipeline, &framebuffers, &vertex_buffer, &index_buffer);
 
-    Self {swapchain, command_buffers, images, render_pass, device, viewport, vs, fs, pipeline, queue, vertex_buffer, framebuffers, command_buffer_allocator}
+    Self {swapchain, command_buffers, images, render_pass, device, viewport, vs, fs, pipeline, queue, vertex_buffer, framebuffers, command_buffer_allocator, index_buffer}
     }
     
    pub  fn reload_objects_dependent_on_window_size(&mut self, new_dimensions: winit::dpi::PhysicalSize<u32>){
@@ -206,7 +223,7 @@ impl VulkanInstance{
             self.render_pass.clone(),
             self.viewport.clone(),
         );
-        self.command_buffers = get_command_buffers(&self.command_buffer_allocator, &self.queue, &self.pipeline, &self.framebuffers, &self.vertex_buffer);
+        self.command_buffers = get_command_buffers(&self.command_buffer_allocator, &self.queue, &self.pipeline, &self.framebuffers, &self.vertex_buffer, &self.index_buffer);
     }
 
    pub fn draw(&mut self)      {
@@ -362,6 +379,7 @@ fn get_command_buffers(
     pipeline: &Arc<GraphicsPipeline>,
     framebuffers: &[Arc<Framebuffer>],
     vertex_buffer: &Subbuffer<[MyVertex]>,
+    index_buffer: &Subbuffer<[u32]>,
 ) -> Vec<Arc<PrimaryAutoCommandBuffer>> {
     framebuffers
         .iter()
@@ -389,7 +407,9 @@ fn get_command_buffers(
                 .unwrap()
                 .bind_vertex_buffers(0, vertex_buffer.clone())
                 .unwrap()
-                .draw(vertex_buffer.len() as u32, 1, 0, 0)
+                .bind_index_buffer(index_buffer.clone())
+                .unwrap()
+                .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
                 .unwrap()
                 .end_render_pass(Default::default())
                 .unwrap();
