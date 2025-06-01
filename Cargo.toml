@@ -19,3 +19,5 @@ serde = { version = "1.0", features = ["derive"] }
 
 # Glium has still not been updated to the latest winit version
 winit_glium = { package = "winit", version = "0.27.1" }
+serde_json = "1.0.140"
+byte = "0.2.7"

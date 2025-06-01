@@ -189,6 +189,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f30e7476521f6f8af1a1c4c0b8cc94f0bee37d91763d0ca2665f299b6cd8aec"
 
 [[package]]
+name = "byte"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21c7ab3e4ae80853c7f8dcdcd904dfa25c02cc373534b8d165194325a088a7cc"
+
+[[package]]
 name = "bytemuck"
 version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -730,12 +736,14 @@ dependencies = [
 name = "graphics"
 version = "0.1.0"
 dependencies = [
+ "byte",
  "cgmath",
  "glium",
  "png",
  "rand",
  "ron",
  "serde",
+ "serde_json",
  "vulkano",
  "vulkano-shaders",
  "vulkano-util",
@@ -1430,11 +1438,12 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.111"
+version = "1.0.140"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "176e46fa42316f18edd598015a5166857fc835ec732f5215eac6b7bdbf0a84f4"
+checksum = "20068b6e96dc6c9bd23e01df8827e6c7e1f2fddd43c21810382803c136b99373"
 dependencies = [
  "itoa",
+ "memchr",
  "ryu",
  "serde",
 ]
