@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use vulkano::{buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, device::Device, memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator}};
-
+use vulkano::{buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer}, device::Device, memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator}};
+use vulkano::pipeline::graphics::vertex_input::Vertex;
 use crate::vulkan_engine::MyVertex;
 
 //Loads geometry and produces the vertex buffer. 
@@ -14,27 +14,10 @@ impl GeometryLoader{
         GeometryLoader{memory_allocator: ma}
     }
 
-    pub fn create_vertex_buffer(self) -> Subbuffer<[MyVertex]>{
-        let vertex1 = MyVertex {
-            position: [-0.5, -0.5],
-        };
-        let vertex2 = MyVertex {
-            position: [0.5, 0.5],
-        };
-        let vertex3 = MyVertex {
-            position: [0.5, -0.5],
-        };
+
+    pub fn create_vertex_buffer<T: Vertex + BufferContents>(self, vertexs: Vec<T>) -> Subbuffer<[T]>{
         
-        let vertex4 = MyVertex {
-            position: [-0.5, 0.5],
-        };
-        let vertex5 = MyVertex {
-            position: [0.5, -0.5],
-        };
-        let vertex6 = MyVertex {
-            position: [0.5, 0.5],
-        };
-        let vertex_buffer: Subbuffer<[MyVertex]> = Buffer::from_iter(
+        let vertex_buffer: Subbuffer<[T]> = Buffer::from_iter(
             self.memory_allocator,
             BufferCreateInfo {
                 usage: BufferUsage::VERTEX_BUFFER,
@@ -45,7 +28,7 @@ impl GeometryLoader{
                     | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
-            vec![vertex1, vertex2, vertex3, vertex4, vertex5, vertex6],
+            vertexs,
         )
         .unwrap();
         vertex_buffer
