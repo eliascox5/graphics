@@ -386,17 +386,21 @@ fn create_pipeline(
     render_pass: Arc<RenderPass>,
     viewport: Viewport,
 ) -> Arc<GraphicsPipeline> {
+    //Shaders
     let vs = vs.entry_point("main").unwrap();
     let fs = fs.entry_point("main").unwrap();
 
+    //Info about how the vertex buffer maps onto the shader entry
     let vertex_input_state = three_d::per_vertex()
         .definition(&vs.info().input_interface)
         .unwrap();
+
+
     let stages = [
         PipelineShaderStageCreateInfo::new(vs),
         PipelineShaderStageCreateInfo::new(fs),
     ];
-
+    
     let layout = PipelineLayout::new(
         device.clone(),
         PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
@@ -439,6 +443,10 @@ fn create_command_buffers(
     framebuffers: &[Arc<Framebuffer>],
     vertex_buffer: Subbuffer<[three_d]>,
 ) -> Vec<Arc<PrimaryAutoCommandBuffer>> {
+    //Reads "For each frame buffer( Remmeber equivelent to each image
+    //Create a new command buffer.
+    //The command buffer should start a render pass, bind the pipeline and vertex buffer
+    //Then eend the render pass.
     framebuffers
         .iter()
         .map(|framebuffer| {

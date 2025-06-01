@@ -49,10 +49,10 @@ pub fn make_cube() -> Vec<three_d>{
     let v3 = data.chunks(3);
 
 
-//[rand::random::<f32>() * 255.0,rand::random::<f32>() * 255.0,rand::random::<f32>()* 255.0,rand::random::<f32>() * 255.0]
+    let colors = [rand::random::<f32>(),rand::random::<f32>(),rand::random::<f32>(),rand::random::<f32>()];
     for v in v3{
         let vs:[f32; 3]  = [v[0], v[1], v[2]];
-        vectors.push(three_d { position: vs, color: [255.0, 255.0,255.0,255.0]});
+        vectors.push(three_d { position: vs, color: colors});
     }
     
 
