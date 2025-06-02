@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::future;
 use std::sync::Arc;
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
@@ -6,6 +7,9 @@ use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, RenderPassBeginInfo,
     SubpassBeginInfo, SubpassContents,
 };
+use vulkano::descriptor_set::allocator::{StandardDescriptorSetAlloc, StandardDescriptorSetAllocator};
+use vulkano::descriptor_set::layout::{DescriptorBindingFlags, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags, DescriptorSetLayoutCreateInfo, DescriptorType};
+use vulkano::descriptor_set::DescriptorSet;
 use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
 use vulkano::device::{
     Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags,
@@ -22,9 +26,9 @@ use vulkano::pipeline::graphics::vertex_input::{Vertex, VertexDefinition};
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
 use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
 use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
-use vulkano::pipeline::{GraphicsPipeline, PipelineLayout, PipelineShaderStageCreateInfo};
+use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineLayout, PipelineShaderStageCreateInfo};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
-use vulkano::shader::ShaderModule;
+use vulkano::shader::{ShaderModule, ShaderStages};
 use vulkano::swapchain::{self, Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo};
 use vulkano::sync::future::FenceSignalFuture;
 use vulkano::sync::{self, GpuFuture};
@@ -47,7 +51,7 @@ pub struct MyVertex {
     pub position: [f32; 2],
 }
 
-pub struct VulkanInstance{
+pub struct VulkanEngine{
     swapchain: Arc<Swapchain>,
     command_buffers: Vec<Arc<PrimaryAutoCommandBuffer>>,
     images: Vec<Arc<Image>>,
@@ -66,12 +70,14 @@ pub struct VulkanInstance{
     previous_frame_finished_future: Option<Box<dyn GpuFuture>>,
     memory_allocator: Arc<vulkano::memory::allocator::GenericMemoryAllocator<vulkano::memory::allocator::FreeListAllocator>>,
     settings: Settings,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>
 }
     
 //notes:
 
 
-impl VulkanInstance{
+impl VulkanEngine{
+    //Create a new Engine
     pub fn new(window: &Arc<Window>, required_extensions: vulkano::instance::InstanceExtensions, settings: Settings) -> Self{  
         let library = vulkano::VulkanLibrary::new().expect("no local Vulkan library/DLL");
 
@@ -150,6 +156,11 @@ impl VulkanInstance{
         let vs = vs_spir::load(device.clone()).expect("failed to create shader module");
         let fs = fs_spir::load(device.clone()).expect("failed to create shader module");
 
+
+        //Create Descriptor Sets
+        let descriptor_set_allocator = Arc::new(StandardCommandBufferAllocator::new(device, Default::default(),));
+        
+
         println!("Creating Pipeline");
          //Graphics pipeline
         let pipeline = create_pipeline(
@@ -165,7 +176,7 @@ impl VulkanInstance{
             StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
         let mut command_buffers = create_command_buffers(
-            &command_buffer_allocator, &queue, &pipeline, &framebuffers, vertex_buffer.clone() );
+            &command_buffer_allocator, &queue, &pipeline, &framebuffers, &vertex_buffer.clone() );
 
         let max_frames_in_flight = images.len() as i32;
         let current_frame = 0;
@@ -175,7 +186,7 @@ impl VulkanInstance{
             
         println!("Finalising Engine Initialisation");
         Self {swapchain, command_buffers, images, render_pass, device, viewport, vs, fs, pipeline, queue, vertex_buffer, framebuffers, command_buffer_allocator, 
-            max_frames_in_flight, current_frame, previous_frame_finished_future, memory_allocator, settings}
+            max_frames_in_flight, current_frame, previous_frame_finished_future, memory_allocator, settings, descriptor_set_allocator}
         }
     
     //Recreate swapchain and stuff when required.
@@ -188,7 +199,6 @@ impl VulkanInstance{
         .expect("failed to recreate swapchain: {e}");
         self.swapchain = new_swapchain;
         let new_framebuffers = create_framebuffers(&new_images, &self.render_pass);
-
         let new_pipeline = create_pipeline(
             self.device.clone(),
             self.vs.clone(),
@@ -196,46 +206,10 @@ impl VulkanInstance{
             self.render_pass.clone(),
             self.viewport.clone(),
         );
-        //self.command_buffers = create_command_buffers(&self.command_buffer_allocator, &self.queue, &self.pipeline, &self.framebuffers, &self.vertex_buffer);
+        self.command_buffers = create_command_buffers(&self.command_buffer_allocator, &self.queue, &new_pipeline,&new_framebuffers, &self.vertex_buffer);
     }
 
-    fn create_command_buffer_for_vertex<T: Vertex + BufferContents>(
-    &self,
-    vertex_buffer: Subbuffer<[T]>
-) -> Arc<PrimaryAutoCommandBuffer> {
-    let mut builder = AutoCommandBufferBuilder::primary(
-        &self.command_buffer_allocator,
-        self.queue.queue_family_index(),
-        CommandBufferUsage::MultipleSubmit,
-    )
-    .unwrap();
-
-    builder
-        .begin_render_pass(
-            RenderPassBeginInfo {
-                // Customize render pass (clear values, framebuffer, etc.)
-                clear_values: vec![Some([0.0, 0.0, 1.0, 1.0].into())],
-                ..RenderPassBeginInfo::framebuffer(self.framebuffers[self.current_frame as usize].clone())
-            },
-            SubpassBeginInfo {
-                contents: SubpassContents::Inline,
-                ..Default::default()
-            },
-        )
-        .unwrap()
-        .bind_pipeline_graphics(self.pipeline.clone())
-        .unwrap()
-        .bind_vertex_buffers(0, vertex_buffer.clone())  // Bind the new vertex buffer
-        .unwrap() 
-        .draw(vertex_buffer.len() as u32, 1, 0, 0)
-        .unwrap()
-        .end_render_pass(Default::default())
-        .unwrap();
-
-    builder.build().unwrap()
-}
-
-    //DRAW A FRAME
+    //Draw a frame
     pub fn draw<T: Vertex + BufferContents>(&mut self, vb: Subbuffer<[T]>)      {
         //Fetches the image (render target) to draw this frame on.
 
@@ -264,6 +238,8 @@ impl VulkanInstance{
         self.create_and_flush_future(image_i, acquire_future);
         }
         
+    //Registers a future on a specific image and then signals the fence once the image is ready
+    //Basically executes the command_buffer once the image is available.
     fn create_and_flush_future(&mut self, image_i: u32, acquire_future: swapchain::SwapchainAcquireFuture) {
             let future =   sync::now(self.device.clone())
                 .join(acquire_future)
@@ -378,7 +354,7 @@ pub fn create_framebuffers(images: &[Arc<Image>], render_pass: &Arc<RenderPass>)
         .collect::<Vec<_>>()
 }
 
-
+//Creates a pipeline, a description of the order and manner shaders and other processing will be applied.
 fn create_pipeline(
     device: Arc<Device>,
     vs: Arc<ShaderModule>,
@@ -401,6 +377,7 @@ fn create_pipeline(
         PipelineShaderStageCreateInfo::new(fs),
     ];
     
+
     let layout = PipelineLayout::new(
         device.clone(),
         PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
@@ -418,6 +395,7 @@ fn create_pipeline(
             stages: stages.into_iter().collect(),
             vertex_input_state: Some(vertex_input_state),
             input_assembly_state: Some(InputAssemblyState::default()),
+            
             viewport_state: Some(ViewportState {
                 viewports: [viewport].into_iter().collect(),
                 ..Default::default()
@@ -435,13 +413,18 @@ fn create_pipeline(
     .unwrap()
 }
 
+//Creates a bog standard descriptor set layout
+fn create__std_descriptor_set_layout(device: Arc<Device>) -> Arc<DescriptorSetLayout>{
+ 
+    
+}
 
 fn create_command_buffers(
     command_buffer_allocator: &StandardCommandBufferAllocator,
     queue: &Arc<Queue>,
     pipeline: &Arc<GraphicsPipeline>,
     framebuffers: &[Arc<Framebuffer>],
-    vertex_buffer: Subbuffer<[three_d]>,
+    vertex_buffer: &Subbuffer<[three_d]>,
 ) -> Vec<Arc<PrimaryAutoCommandBuffer>> {
     //Reads "For each frame buffer( Remmeber equivelent to each image
     //Create a new command buffer.
@@ -482,6 +465,7 @@ fn create_command_buffers(
             builder.build().unwrap()
         })
         .collect()
+       
     }
 
 

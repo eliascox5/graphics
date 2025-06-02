@@ -52,7 +52,7 @@ pub fn make_cube() -> Vec<three_d>{
     let colors = [rand::random::<f32>(),rand::random::<f32>(),rand::random::<f32>(),rand::random::<f32>()];
     for v in v3{
         let vs:[f32; 3]  = [v[0], v[1], v[2]];
-        vectors.push(three_d { position: vs, color: colors});
+        vectors.push(three_d { position: vs, color: [rand::random::<f32>(),rand::random::<f32>(),rand::random::<f32>(),rand::random::<f32>()]});
     }
     
 
@@ -75,7 +75,7 @@ fn main() {
 
     let settings = Settings::default();
 
-    let mut vk_instance = vulkan_engine::VulkanInstance::new(&window, required_extensions, settings);
+    let mut vk_instance = vulkan_engine::VulkanEngine::new(&window, required_extensions, settings);
 
     let geometry_loader = geometry_loader::GeometryLoader::new(vk_instance.device.clone());
 
@@ -87,13 +87,10 @@ fn main() {
 
     
     println!("Made everything!");
-    use vulkano::sync::GpuFuture;
-    use vulkano::sync::future::FenceSignalFuture;
-    use vulkano::sync;
     
     //The Event looooop -----------------------------------------------------------------------------------
 
-    let new_dimensions: winit::dpi::PhysicalSize<u32> = window.inner_size();
+    let mut new_dimensions: winit::dpi::PhysicalSize<u32> = window.inner_size();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -107,11 +104,11 @@ fn main() {
             ..
         } => {
             window_resized = true;
-            
+            new_dimensions = window.inner_size();
         }
         Event::MainEventsCleared => {
             if window_resized{
-                //vk_instance.reload_objects_dependent_on_window_size(new_dimensions);
+                vk_instance.reload_objects_dependent_on_window_size(new_dimensions);
             }
             vk_instance.draw(vb.clone());
         }
